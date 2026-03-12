@@ -163,6 +163,29 @@ inline void dump_lio_state_to_log(FILE *fp)
     fprintf(fp, "\r\n");  
     fflush(fp);
 }
+void imuToLidarTf()
+{
+    static tf::TransformBroadcaster br;
+    tf::Transform transform;
+
+    transform.setOrigin(tf::Vector3(
+        Lidar_T_wrt_IMU(0),
+        Lidar_T_wrt_IMU(1),
+        Lidar_T_wrt_IMU(2)
+    ));
+
+    tf::Matrix3x3 R_tf(
+        Lidar_R_wrt_IMU(0,0), Lidar_R_wrt_IMU(0,1), Lidar_R_wrt_IMU(0,2),
+        Lidar_R_wrt_IMU(1,0), Lidar_R_wrt_IMU(1,1), Lidar_R_wrt_IMU(1,2),
+        Lidar_R_wrt_IMU(2,0), Lidar_R_wrt_IMU(2,1), Lidar_R_wrt_IMU(2,2)
+    );
+    ros::Time tf_stamp = odomAftMapped.header.stamp;  // or ros::Time::now() if odometry is realtime
+
+    transform.setBasis(R_tf);
+    br.sendTransform(
+        tf::StampedTransform(transform, tf_stamp, "body", "rslidar")
+    );
+}
 
 void pointBodyToWorld_ikfom(PointType const * const pi, PointType * const po, state_ikfom &s)
 {
@@ -360,6 +383,16 @@ void imu_cbk(const sensor_msgs::Imu::ConstPtr &msg_in)
 //    time_diff_lidar_to_imu = -1740105883.56 + 2676.403183080;
 //     time_diff_lidar_to_imu =  -1740106128.69180 + 2919.403164000;// - 0.077;
 //    time_diff_lidar_to_imu =  -1740106128.7678;
+
+    // FIRST, CHANGE IMU FRAME TO FLU IF NED IS USED (RSAIRY)
+    if (p_pre->lidar_type == RSM1_BREAK)
+    {
+        msg->angular_velocity.y *= -1.0;
+        msg->angular_velocity.z *= -1.0;
+        
+        msg->linear_acceleration.y *= -1.0;
+        msg->linear_acceleration.z *= -1.0;
+    }
 
     msg->header.stamp = ros::Time().fromSec(msg_in->header.stamp.toSec() + time_diff_lidar_to_imu);
 
@@ -683,18 +716,18 @@ void publish_odometry(const ros::Publisher & pubOdomAftMapped)
         odomAftMapped.pose.covariance[i*6 + 5] = P(k, 2);
     }
 
-//    static tf::TransformBroadcaster br;
-//    tf::Transform                   transform;
-//    tf::Quaternion                  q;
-//    transform.setOrigin(tf::Vector3(odomAftMapped.pose.pose.position.x, \
-//                                    odomAftMapped.pose.pose.position.y, \
-//                                    odomAftMapped.pose.pose.position.z));
-//    q.setW(odomAftMapped.pose.pose.orientation.w);
-//    q.setX(odomAftMapped.pose.pose.orientation.x);
-//    q.setY(odomAftMapped.pose.pose.orientation.y);
-//    q.setZ(odomAftMapped.pose.pose.orientation.z);
-//    transform.setRotation( q );
-//    br.sendTransform( tf::StampedTransform( transform, odomAftMapped.header.stamp, "camera_init", "body" ) );
+   static tf::TransformBroadcaster br;
+   tf::Transform                   transform;
+   tf::Quaternion                  q;
+   transform.setOrigin(tf::Vector3(odomAftMapped.pose.pose.position.x, \
+                                   odomAftMapped.pose.pose.position.y, \
+                                   odomAftMapped.pose.pose.position.z));
+   q.setW(odomAftMapped.pose.pose.orientation.w);
+   q.setX(odomAftMapped.pose.pose.orientation.x);
+   q.setY(odomAftMapped.pose.pose.orientation.y);
+   q.setZ(odomAftMapped.pose.pose.orientation.z);
+   transform.setRotation( q );
+   br.sendTransform( tf::StampedTransform( transform, odomAftMapped.header.stamp, "camera_init", "body" ) );
 }
 
 void publish_path(const ros::Publisher pubPath)
@@ -898,6 +931,16 @@ int main(int argc, char** argv)
 
     Lidar_T_wrt_IMU<<VEC_FROM_ARRAY(extrinT);
     Lidar_R_wrt_IMU<<MAT_FROM_ARRAY(extrinR);
+    // for RSAIRY, the lidar frame is NED, need to change to FLU
+    if (p_pre->lidar_type == RSM1_BREAK)
+    {
+        M3D NED_to_FLU;
+        NED_to_FLU << 1, 0, 0,
+                    0,-1, 0,
+                    0, 0,-1;
+        Lidar_R_wrt_IMU *= NED_to_FLU;
+    }
+
     p_imu->set_extrinsic(Lidar_T_wrt_IMU, Lidar_R_wrt_IMU);
     p_imu->set_gyr_cov(V3D(gyr_cov, gyr_cov, gyr_cov));
     p_imu->set_acc_cov(V3D(acc_cov, acc_cov, acc_cov));
@@ -1063,6 +1106,7 @@ int main(int argc, char** argv)
 
             /******* Publish odometry *******/
             publish_odometry(pubOdomAftMapped);
+            imuToLidarTf();
 
             /*** add the feature points to map kdtree ***/
             t3 = omp_get_wtime();
