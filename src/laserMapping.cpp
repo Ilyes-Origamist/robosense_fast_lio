@@ -96,6 +96,8 @@ int    iterCount = 0, feats_down_size = 0, NUM_MAX_ITERATIONS = 0, laserCloudVal
 bool   point_selected_surf[100000] = {0};
 bool   lidar_pushed, flg_first_scan = true, flg_exit = false, flg_EKF_inited;
 bool   scan_pub_en = false, dense_pub_en = false, scan_body_pub_en = false;
+bool   deskew_en = true;
+bool   msg_is_XYZI = true, msg_is_XYZIRT = false;
 
 vector<vector<int>>  pointSearchInd_surf; 
 vector<BoxPointType> cub_needrm;
@@ -139,7 +141,7 @@ geometry_msgs::Quaternion geoQuat;
 geometry_msgs::PoseStamped msg_body_pose;
 
 shared_ptr<Preprocess> p_pre(new Preprocess());
-shared_ptr<ImuProcess> p_imu(new ImuProcess());
+shared_ptr<ImuProcess> p_imu(new ImuProcess(deskew_en));
 
 void SigHandle(int sig)
 {
@@ -302,6 +304,25 @@ void lasermap_fov_segment()
 
 void standard_pcl_cbk(const sensor_msgs::PointCloud2::ConstPtr &msg) 
 {
+    // Check LiDAR message type (XYZI or XYZIRT) and print info (only for the first received message)
+    static bool fields_checked = false;
+    if (!fields_checked)
+    {
+        if (msg->fields.size() == 4){
+            msg_is_XYZI = true;
+            ROS_INFO("LiDAR message type: XYZI, with %d points", msg->width * msg->height);
+        }
+        else if (msg->fields.size() >= 6){
+            msg_is_XYZIRT = true;
+            ROS_INFO("LiDAR message type: XYZIRT, with %d points", msg->width * msg->height);
+        }
+        else
+        {
+            ROS_ERROR("Unsupported LiDAR message type, only XYZI and XYZIRT supported");
+            return;
+        }
+        fields_checked = true;
+    }
     //std::cout << "standard_pcl_cbk" << msg->header.stamp.toSec() << std::endl;
     mtx_buffer.lock();
     scan_count ++;
@@ -312,7 +333,9 @@ void standard_pcl_cbk(const sensor_msgs::PointCloud2::ConstPtr &msg)
         lidar_buffer.clear();
     }
 
-    if(p_pre->lidar_type == RSM1_BREAK){
+    if(p_pre->divide_sub_cloud && 
+        (p_pre->lidar_type == RSM1 || (p_pre->lidar_type == RSAIRY && msg_is_XYZIRT)) ) // divide into subclouds only support RSM1 and RSAIRY with XYZIRT message type
+    {
         double start_time, end_time;
         for(int i_sub_cloud = 0; i_sub_cloud < num_sub_cloud; i_sub_cloud ++){
             PointCloudXYZI::Ptr  ptr(new PointCloudXYZI());
@@ -385,7 +408,7 @@ void imu_cbk(const sensor_msgs::Imu::ConstPtr &msg_in)
 //    time_diff_lidar_to_imu =  -1740106128.7678;
 
     // FIRST, CHANGE IMU FRAME TO FLU IF NED IS USED (RSAIRY)
-    if (p_pre->lidar_type == RSM1_BREAK)
+    if (p_pre->lidar_type == RSAIRY)
     {
         msg->angular_velocity.y *= -1.0;
         msg->angular_velocity.z *= -1.0;
@@ -433,25 +456,37 @@ bool sync_packages(MeasureGroup &meas)
     if(!lidar_pushed)
     {
         meas.lidar = lidar_buffer.front();
-        if(p_pre->lidar_type == RSM1){
-            meas.lidar_beg_time = time_buffer.front() - meas.lidar->points.back().curvature / double(1000);
-        }else{
+
+        // for flash lidar with 4 fields (XYZI), the timestamp is the same for all points, so we can directly use the header time as both start and end time of the scan. 
+        // For other lidars, we need to calculate the start time based on the curvature field of the last point, which records the time offset of that point relative to the scan start time.
+        if (p_pre->lidar_type == RSAIRY && msg_is_XYZI)
+        {
+            // Flash lidar capture is instantaneous. Start and end times are identical.
             meas.lidar_beg_time = time_buffer.front();
-        }
-        if (meas.lidar->points.size() <= 1) // time too little
-        {
-            lidar_end_time = meas.lidar_beg_time + lidar_mean_scantime;
-            ROS_WARN("Too few input point cloud!\n");
-        }
-        else if (meas.lidar->points.back().curvature / double(1000) < 0.5 * lidar_mean_scantime)
-        {
-            lidar_end_time = meas.lidar_beg_time + lidar_mean_scantime;
+            lidar_end_time = meas.lidar_beg_time; 
         }
         else
         {
-            scan_num ++;
-            lidar_end_time = meas.lidar_beg_time + meas.lidar->points.back().curvature / double(1000);
-            lidar_mean_scantime += (meas.lidar->points.back().curvature / double(1000) - lidar_mean_scantime) / scan_num;
+            if(p_pre->lidar_type == RSM1){
+                meas.lidar_beg_time = time_buffer.front() - meas.lidar->points.back().curvature / double(1000);
+            }else{
+                meas.lidar_beg_time = time_buffer.front();
+            }
+            if (meas.lidar->points.size() <= 1) // time too little
+            {
+                lidar_end_time = meas.lidar_beg_time + lidar_mean_scantime;
+                ROS_WARN("Too few input point cloud!\n");
+            }
+            else if (meas.lidar->points.back().curvature / double(1000) < 0.5 * lidar_mean_scantime)
+            {
+                lidar_end_time = meas.lidar_beg_time + lidar_mean_scantime;
+            }
+            else
+            {
+                scan_num ++;
+                lidar_end_time = meas.lidar_beg_time + meas.lidar->points.back().curvature / double(1000);
+                lidar_mean_scantime += (meas.lidar->points.back().curvature / double(1000) - lidar_mean_scantime) / scan_num;
+            }
         }
 
         meas.lidar_end_time = lidar_end_time;
@@ -881,6 +916,7 @@ int main(int argc, char** argv)
     nh.param<string>("common/lid_topic",lid_topic,"/livox/lidar");
     nh.param<string>("common/imu_topic", imu_topic,"/livox/imu");
     nh.param<bool>("common/time_sync_en", time_sync_en, false);
+    nh.param<bool>("common/deskew_en", deskew_en, true);
     nh.param<double>("common/time_offset_lidar_to_imu", time_diff_lidar_to_imu, 0.0);
     nh.param<double>("filter_size_corner",filter_size_corner_min,0.5);
     nh.param<double>("filter_size_surf",filter_size_surf_min,0.5);
@@ -892,6 +928,7 @@ int main(int argc, char** argv)
     nh.param<double>("mapping/acc_cov",acc_cov,0.1);
     nh.param<double>("mapping/b_gyr_cov",b_gyr_cov,0.0001);
     nh.param<double>("mapping/b_acc_cov",b_acc_cov,0.0001);
+    nh.param<bool>("mapping/divide_sub_cloud", p_pre->divide_sub_cloud, false);
     nh.param<int>("mapping/num_sub_cloud", num_sub_cloud, 1);
     nh.param<double>("mapping/max_search_dist_surf", max_search_dist_surf, 5);
     nh.param<double>("preprocess/blind", p_pre->blind, 0.01);
@@ -911,6 +948,7 @@ int main(int argc, char** argv)
     
     path.header.stamp    = ros::Time::now();
     path.header.frame_id ="camera_init";
+    ROS_INFO("--- LiDAR type: %d, Divide into %d sub-clouds: %s", p_pre->lidar_type, num_sub_cloud, p_pre->divide_sub_cloud ? "true" : "false");
 
     /*** variables definition ***/
     int effect_feat_num = 0, frame_num = 0;
@@ -931,8 +969,8 @@ int main(int argc, char** argv)
 
     Lidar_T_wrt_IMU<<VEC_FROM_ARRAY(extrinT);
     Lidar_R_wrt_IMU<<MAT_FROM_ARRAY(extrinR);
-    // for RSAIRY, the lidar frame is NED, need to change to FLU
-    if (p_pre->lidar_type == RSM1_BREAK)
+    // for RSAIRY, the lidar frame is NED, need to change to FLU for the IEKF to work properly
+    if (p_pre->lidar_type == RSAIRY)
     {
         M3D NED_to_FLU;
         NED_to_FLU << 1, 0, 0,

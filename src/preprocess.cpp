@@ -34,9 +34,10 @@ Preprocess::Preprocess()
 
 Preprocess::~Preprocess() {}
 
-void Preprocess::set(bool feat_en, int lid_type, double bld, int pfilt_num)
+void Preprocess::set(bool feat_en, bool divide_sub_cloud, int lid_type, double bld, int pfilt_num)
 {
   feature_enabled = feat_en;
+  divide_sub_cloud = divide_sub_cloud;
   lidar_type = lid_type;
   blind = bld;
   point_filter_num = pfilt_num;
@@ -84,8 +85,8 @@ void Preprocess::process(const sensor_msgs::PointCloud2::ConstPtr &msg, PointClo
     robosenseM1_handler(msg, i_sub_cloud, num_sub_cloud, start_time, end_time);
     break;
 
-  case RSM1_BREAK:
-    robosenseM1_handler(msg, i_sub_cloud, num_sub_cloud, start_time, end_time);
+  case RSAIRY:
+    robosenseAiry_handler(msg, i_sub_cloud, num_sub_cloud, start_time, end_time);
     break;
 
   default:
@@ -427,7 +428,69 @@ void Preprocess::robosenseM1_handler(const sensor_msgs::PointCloud2::ConstPtr &m
      //pub_func(pl_surf, pub_full, msg->header.stamp);
      pub_func(pl_surf, pub_corn, msg->header.stamp);
 }
+void Preprocess::robosenseAiry_handler(const sensor_msgs::PointCloud2::ConstPtr &msg, 
+                                       int i_sub_cloud, int num_sub_cloud, 
+                                       double &start_time, double &end_time)
+{
+    // if message type is XYZIRT, use robosenseM1_handler 
+    if (msg->fields.size() >= 6){
+      robosenseM1_handler(msg, i_sub_cloud, num_sub_cloud, start_time, end_time);
+      return;
+    }
+    
+    pl_surf.clear();
+    pl_corn.clear();
+    pl_full.clear();
+    
+    // 1. Extract raw XYZI data into a Ptr (required for the VoxelGrid filter)
+    pcl::PointCloud<pcl::PointXYZI>::Ptr pl_orig(new pcl::PointCloud<pcl::PointXYZI>());
+    pcl::fromROSMsg(*msg, *pl_orig);
+    
+    if (pl_orig->points.empty()) return;
 
+    // 2. Set timestamps (treating the solid-state flash as instantaneous)
+    start_time = msg->header.stamp.toSec();
+    end_time = start_time;
+
+    // 3. Apply the Voxel Grid Downsampling
+    pcl::PointCloud<pcl::PointXYZI>::Ptr pl_downsampled(new pcl::PointCloud<pcl::PointXYZI>());
+    pcl::VoxelGrid<pcl::PointXYZI> voxel_filter;
+    voxel_filter.setInputCloud(pl_orig);
+    
+    // Set the voxel size (e.g., 0.1m x 0.1m x 0.1m). 
+    // You can adjust this based on how dense you want the SLAM map.
+    voxel_filter.setLeafSize(0.1f, 0.1f, 0.1f); 
+    voxel_filter.filter(*pl_downsampled);
+
+    // 4. Process the downsampled points into FAST_LIO's PointType
+    for (const auto& ori_point : pl_downsampled->points)
+    {
+        double range = sqrt(ori_point.x * ori_point.x + 
+                            ori_point.y * ori_point.y + 
+                            ori_point.z * ori_point.z);
+                            
+        // Filter out points that are too close (blind spot) or too far
+        if (range < 60 && range > blind)
+        {
+            PointType added_pt;
+            added_pt.x = ori_point.x;
+            added_pt.y = ori_point.y;
+            added_pt.z = ori_point.z;
+            added_pt.intensity = ori_point.intensity;
+            added_pt.normal_x = 0;
+            added_pt.normal_y = 0;
+            added_pt.normal_z = 0;
+            
+            // No deskewing time offset for solid-state
+            added_pt.curvature = 0.0; 
+
+            pl_surf.points.push_back(added_pt);
+        }
+    }
+    
+    // 5. Publish to the rest of the FAST_LIO pipeline
+    pub_func(pl_surf, pub_corn, msg->header.stamp);
+}
 void Preprocess::velodyne_handler(const sensor_msgs::PointCloud2::ConstPtr &msg)
 {
     pl_surf.clear();

@@ -3,6 +3,7 @@ Log/*.png
 Log/*.txt
 Log/*.csv
 Log/*.pdf
+Log/*.bag
 .vscode/c_cpp_properties.json
 .vscode/settings.json
 PCD/*.pcd

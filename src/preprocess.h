@@ -2,6 +2,7 @@
 #include <pcl_conversions/pcl_conversions.h>
 #include <sensor_msgs/PointCloud2.h>
 #include <livox_ros_driver/CustomMsg.h>
+#include <pcl/filters/voxel_grid.h>
 
 using namespace std;
 
@@ -10,7 +11,7 @@ using namespace std;
 typedef pcl::PointXYZINormal PointType;
 typedef pcl::PointCloud<PointType> PointCloudXYZI;
 
-enum LID_TYPE{AVIA = 1, VELO16, OUST64, RSM1, RSM1_BREAK}; //{1, 2, 3} RSM1: robosense M1 lidar, RSM1_BREAK: break the scan into smaller sub-scan
+enum LID_TYPE{AVIA = 1, VELO16, OUST64, RSM1, RSAIRY}; //{1, 2, 3, 4, 5} RSM1: robosense M1 lidar, RSAIRY: robosense Airy lidar
 enum TIME_UNIT{SEC = 0, MS = 1, US = 2, NS = 3};
 enum Feature{Nor, Poss_Plane, Real_Plane, Edge_Jump, Edge_Plane, Wire, ZeroPoint};
 enum Surround{Prev, Next};
@@ -111,7 +112,7 @@ class Preprocess
   void process(const livox_ros_driver::CustomMsg::ConstPtr &msg, PointCloudXYZI::Ptr &pcl_out);
   void process(const sensor_msgs::PointCloud2::ConstPtr &msg, PointCloudXYZI::Ptr &pcl_out,
                int i_sub_cloud, int num_sub_cloud, double & start_time, double & end_time);
-  void set(bool feat_en, int lid_type, double bld, int pfilt_num);
+  void set(bool feat_en, bool divide_sub_cloud, int lid_type, double bld, int pfilt_num);
 
   // sensor_msgs::PointCloud2::ConstPtr pointcloud;
   PointCloudXYZI pl_full, pl_corn, pl_surf;
@@ -120,7 +121,7 @@ class Preprocess
   float time_unit_scale;
   int lidar_type, point_filter_num, N_SCANS, SCAN_RATE, time_unit;
   double blind;
-  bool feature_enabled, given_offset_time;
+  bool feature_enabled, given_offset_time, divide_sub_cloud{false};
   ros::Publisher pub_full, pub_surf, pub_corn;
     
 
@@ -128,6 +129,7 @@ class Preprocess
   void avia_handler(const livox_ros_driver::CustomMsg::ConstPtr &msg);
   void oust64_handler(const sensor_msgs::PointCloud2::ConstPtr &msg);
   void robosenseM1_handler(const sensor_msgs::PointCloud2::ConstPtr &msg, int i_sub_cloud, int num_sub_cloud, double & start_time, double & end_time);
+  void robosenseAiry_handler(const sensor_msgs::PointCloud2::ConstPtr &msg, int i_sub_cloud, int num_sub_cloud, double & start_time, double & end_time);
   void velodyne_handler(const sensor_msgs::PointCloud2::ConstPtr &msg);
   void give_feature(PointCloudXYZI &pl, vector<orgtype> &types);
   void pub_func(PointCloudXYZI &pl, const ros::Publisher publisher, const ros::Time &ct);

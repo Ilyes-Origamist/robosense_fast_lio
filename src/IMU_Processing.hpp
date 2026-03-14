@@ -37,6 +37,8 @@ class ImuProcess
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
   ImuProcess();
+  ImuProcess(bool deskew_en);
+
   ~ImuProcess();
   
   void Reset();
@@ -62,6 +64,7 @@ class ImuProcess
   V3D cov_bias_gyr;
   V3D cov_bias_acc;
   double first_lidar_time;
+  bool deskew_en{true};
 
  private:
   void IMU_init(const MeasureGroup &meas, esekfom::esekf<state_ikfom, 12, input_ikfom> &kf_state, int &N);
@@ -88,7 +91,11 @@ class ImuProcess
 };
 
 ImuProcess::ImuProcess()
-    : b_first_frame_(true), imu_need_init_(true), start_timestamp_(-1)
+    : ImuProcess(false)
+{}
+
+ImuProcess::ImuProcess(bool deskew_en)
+    : b_first_frame_(true), imu_need_init_(true), start_timestamp_(-1), deskew_en(deskew_en)
 {
   init_iter_num = 1;
   Q = process_noise_cov();
@@ -267,7 +274,13 @@ void ImuProcess::UndistortPcl(const MeasureGroup &meas, esekfom::esekf<state_ikf
   
   /*** sort point clouds by offset time ***/
   pcl_out = *(meas.lidar);
-  sort(pcl_out.points.begin(), pcl_out.points.end(), time_list);
+  // Only sort the point cloud if deskew is enabled 
+  // If disabled, assume scan is flash, aka all points have the same timestamp, so no need to sort (curvature = 0)
+  // and backward propagation will not be performed. (this can save a lot of time for large point clouds, e.g., 128-line lidar with 300k points per scan) 
+  if (deskew_en)
+  {
+    sort(pcl_out.points.begin(), pcl_out.points.end(), time_list);
+  }
 /*    cout<<setprecision(18)<<"[ IMU Process ]: Process "<<meas.lidar->points.size()<<" lidar from "<<pcl_beg_time<<" to "<<pcl_end_time<<", " \
             <<meas.imu.size()<<" imu msgs from "<<imu_beg_time<<" to "<<imu_end_time<<endl;*/
 
@@ -345,6 +358,10 @@ void ImuProcess::UndistortPcl(const MeasureGroup &meas, esekfom::esekf<state_ikf
   last_lidar_end_time_ = pcl_end_time;
 
   /*** undistort each lidar point (backward propagation) ***/
+  // if deskew is disabled, skip the undistortion process (backward propagation) and directly return the input point cloud 
+  // (assumed to be captured in a flash way, i.e., all points have the same timestamp)
+  if (!deskew_en) return;
+  
   if (pcl_out.points.begin() == pcl_out.points.end()) return;
   auto it_pcl = pcl_out.points.end() - 1;
   for (auto it_kp = IMUpose.end() - 1; it_kp != IMUpose.begin(); it_kp--)

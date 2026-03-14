@@ -4,15 +4,24 @@ common:
     time_sync_en: false         # ONLY turn on when external time synchronization is really not possible
     time_offset_lidar_to_imu: 0.0 # Time offset between lidar and IMU calibrated by other algorithms, e.g. LI-Init (can be found in README).
                                   # This param will take effect no matter what time_sync_en is. So if the time offset is not known exactly, please set as 0.0
-
+    deskew_en: false            # true: perform motion compensation for each point; false: skip motion compensation and directly use the input point cloud 
+                               # (assumed to be captured in a flash way, i.e., all points have the same timestamp)
+    # IMPORTANT: if using XYRI, set deskew to false (can deskew only if message type is XYZIRT)
 preprocess:
     lidar_type: 5                # 1 for Livox serials LiDAR, 2 for Velodyne LiDAR, 3 for ouster LiDAR,
+                                 # 4 for Robosense M1 and 5 for Robosense Airy (supports both XYZI and XYZIRT).
+    # IMPORTANT: 4 can work with RS Airy but ONLY IF message type is XYZIRT (change it in CMakeLists.txt in rslidar_sdk)
+    # RS Airy handler actually calls RS M1 handler if message type is XYZIRT. 
+    # If message type is XYZI, it will use voxel downsampling (RS Airy handler).
     scan_line: 96
     timestamp_unit: 0                 # 0-second, 1-milisecond, 2-microsecond, 3-nanosecond.
     blind: 0.1
 
 mapping:
     max_search_dist_surf: 1.0 # default: 5
+    divide_sub_cloud: false       # true: divide the point cloud into several sub-clouds according to the scan line ID, and process them separately; 
+                                  # false: process the whole point cloud together.
+    # Supported for Lidar type 4 (RSM1), and for type 5 (RSAIRY) only if message type is XYZIRT. 
     num_sub_cloud: 1
     acc_cov: 0.05
     gyr_cov: 0.05
@@ -25,16 +34,7 @@ mapping:
     extrinsic_R: [0.0033883,  -0.99997669,  0.00592802,
                  -0.99999315, -0.00339705, -0.00146638,
                   0.00148648, -0.00592301, -0.99998135]
-    # extrinsic_T: [ 0.0, 0.0, 0.0 ]
-    # extrinsic_R: [1, 0, 0,
-    #               0, 1, 0,
-    #               0, 0, 1]
-    # extrinsic_R: [0, 1, 0,
-    #               1, 0, 0,
-    #               0, 0, 1]
-    # extrinsic_R: [0, -1, 0,
-    #               -1, 0, 0,
-    #               0, 0, -1]
+
 publish:
     path_en:  true
     scan_publish_en:  true       # false: close all the point cloud output
