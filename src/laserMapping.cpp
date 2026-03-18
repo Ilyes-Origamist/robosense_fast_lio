@@ -973,10 +973,15 @@ int main(int argc, char** argv)
     if (p_pre->lidar_type == RSAIRY)
     {
         M3D NED_to_FLU;
-        NED_to_FLU << 1, 0, 0,
-                    0,-1, 0,
-                    0, 0,-1;
-        Lidar_R_wrt_IMU *= NED_to_FLU;
+        NED_to_FLU << 1,  0,  0,
+                    0, -1,  0,
+                    0,  0, -1;
+                    
+        // Left-multiply to transform the output into the FLU frame
+        Lidar_R_wrt_IMU = NED_to_FLU * Lidar_R_wrt_IMU; 
+        
+        // Apply the same transformation to the translation vector
+        Lidar_T_wrt_IMU = NED_to_FLU * Lidar_T_wrt_IMU; 
     }
 
     p_imu->set_extrinsic(Lidar_T_wrt_IMU, Lidar_R_wrt_IMU);
