@@ -4,7 +4,7 @@
 #define RETURN0AND1 0x10
 
 Preprocess::Preprocess()
-  :feature_enabled(0), lidar_type(AVIA), blind(0.01), point_filter_num(1)
+  :feature_enabled(0), lidar_type(AVIA), blind(0.01), det_range(100.0), max_height(5.0), point_filter_num(1)
 {
   inf_bound = 10;
   N_SCANS   = 6;
@@ -34,12 +34,14 @@ Preprocess::Preprocess()
 
 Preprocess::~Preprocess() {}
 
-void Preprocess::set(bool feat_en, bool divide_sub_cloud, int lid_type, double bld, int pfilt_num)
+void Preprocess::set(bool feat_en, bool divide_sub_cloud, int lid_type, double bld, double max_range, double max_z, int pfilt_num)
 {
   feature_enabled = feat_en;
   divide_sub_cloud = divide_sub_cloud;
   lidar_type = lid_type;
   blind = bld;
+  det_range = max_range;
+  max_height = max_z;
   point_filter_num = pfilt_num;
 }
 
@@ -270,7 +272,7 @@ void Preprocess::oust64_handler(const sensor_msgs::PointCloud2::ConstPtr &msg)
 
       double range = pl_orig.points[i].x * pl_orig.points[i].x + pl_orig.points[i].y * pl_orig.points[i].y + pl_orig.points[i].z * pl_orig.points[i].z;
       
-      if (range < (blind * blind) || range  > 100 * 100) continue;
+      if (range < (blind * blind) || range > det_range * det_range) continue;
       
       Eigen::Vector3d pt_vec;
       PointType added_pt;
@@ -325,8 +327,9 @@ void Preprocess::robosenseM1_handler(const sensor_msgs::PointCloud2::ConstPtr &m
                 }
                 if (i_ori_height % point_filter_num != 0) {continue;}
 
-                double range = ori_point.x * ori_point.x + ori_point.y * ori_point.y + ori_point.z * ori_point.z;
-                if(sqrt(range) < 150 && sqrt(range) > blind){
+                double range = sqrt(ori_point.x * ori_point.x + ori_point.y * ori_point.y + ori_point.z * ori_point.z);
+                bool height_valid = ori_point.z < max_height && ori_point.z > 0;
+                if(range < det_range && range > blind && height_valid){
 
                     Eigen::Vector3d pt_vec;
                     PointType added_pt;
@@ -401,7 +404,8 @@ void Preprocess::robosenseM1_handler(const sensor_msgs::PointCloud2::ConstPtr &m
 //                } else if(range> 0) {
 //                    if (i_ori_height % 10 != 0) { continue; }
 //                }
-                if(range < 150 && range > blind){
+                bool height_valid = ori_point.z < max_height && ori_point.z > 0;
+                if(range < det_range && range > blind && height_valid){
 
                     Eigen::Vector3d pt_vec;
                     PointType added_pt;
@@ -454,9 +458,9 @@ void Preprocess::robosenseAiry_handler(const sensor_msgs::PointCloud2::ConstPtr 
 
     // 3. Apply the Voxel Grid Downsampling
     pcl::PointCloud<pcl::PointXYZI>::Ptr pl_downsampled(new pcl::PointCloud<pcl::PointXYZI>());
-    pcl::VoxelGrid<pcl::PointXYZI> voxel_filter;
+    pcl::ApproximateVoxelGrid<pcl::PointXYZI> voxel_filter;
     voxel_filter.setInputCloud(pl_orig);
-    
+
     // Set the voxel size (e.g., 0.1m x 0.1m x 0.1m). 
     // You can adjust this based on how dense you want the SLAM map.
     voxel_filter.setLeafSize(0.1f, 0.1f, 0.1f); 
@@ -470,7 +474,9 @@ void Preprocess::robosenseAiry_handler(const sensor_msgs::PointCloud2::ConstPtr 
                             ori_point.z * ori_point.z);
                             
         // Filter out points that are too close (blind spot) or too far
-        if (range < 60 && range > blind)
+        // Filter out points that are above max height or below 0 (assuming the LiDAR is mounted above the ground)
+        bool height_valid = ori_point.z < max_height && ori_point.z > 0;
+        if(range < det_range && range > blind && height_valid)
         {
             PointType added_pt;
             added_pt.x = ori_point.x;

@@ -2,7 +2,7 @@
 #include <pcl_conversions/pcl_conversions.h>
 #include <sensor_msgs/PointCloud2.h>
 #include <livox_ros_driver/CustomMsg.h>
-#include <pcl/filters/voxel_grid.h>
+#include <pcl/filters/approximate_voxel_grid.h>
 
 using namespace std;
 
@@ -112,7 +112,7 @@ class Preprocess
   void process(const livox_ros_driver::CustomMsg::ConstPtr &msg, PointCloudXYZI::Ptr &pcl_out);
   void process(const sensor_msgs::PointCloud2::ConstPtr &msg, PointCloudXYZI::Ptr &pcl_out,
                int i_sub_cloud, int num_sub_cloud, double & start_time, double & end_time);
-  void set(bool feat_en, bool divide_sub_cloud, int lid_type, double bld, int pfilt_num);
+  void set(bool feat_en, bool divide_sub_cloud, int lid_type, double bld, double max_range, double max_z, int pfilt_num);
 
   // sensor_msgs::PointCloud2::ConstPtr pointcloud;
   PointCloudXYZI pl_full, pl_corn, pl_surf;
@@ -120,7 +120,7 @@ class Preprocess
   vector<orgtype> typess[128]; //maximum 128 line lidar
   float time_unit_scale;
   int lidar_type, point_filter_num, N_SCANS, SCAN_RATE, time_unit;
-  double blind;
+  double blind, det_range, max_height;
   bool feature_enabled, given_offset_time, divide_sub_cloud{false};
   ros::Publisher pub_full, pub_surf, pub_corn;
     

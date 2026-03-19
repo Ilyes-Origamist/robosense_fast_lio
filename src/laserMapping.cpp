@@ -923,6 +923,7 @@ int main(int argc, char** argv)
     nh.param<double>("filter_size_map",filter_size_map_min,0.5);
     nh.param<double>("cube_side_length",cube_len,200);
     nh.param<float>("mapping/det_range",DET_RANGE,300.f);
+    nh.param<double>("mapping/max_height",p_pre->max_height,5.0f);
     nh.param<double>("mapping/fov_degree",fov_deg,180);
     nh.param<double>("mapping/gyr_cov",gyr_cov,0.1);
     nh.param<double>("mapping/acc_cov",acc_cov,0.1);
@@ -945,7 +946,8 @@ int main(int argc, char** argv)
     nh.param<vector<double>>("mapping/extrinsic_T", extrinT, vector<double>());
     nh.param<vector<double>>("mapping/extrinsic_R", extrinR, vector<double>());
     cout<<"p_pre->lidar_type "<<p_pre->lidar_type<<endl;
-    
+    p_pre->det_range = DET_RANGE;
+
     path.header.stamp    = ros::Time::now();
     path.header.frame_id ="camera_init";
     ROS_INFO("--- LiDAR type: %d, Divide into %d sub-clouds: %s", p_pre->lidar_type, num_sub_cloud, p_pre->divide_sub_cloud ? "true" : "false");
