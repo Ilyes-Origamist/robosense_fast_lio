@@ -47,7 +47,9 @@ RUN mkdir -p /catkin_ws/src
 WORKDIR /catkin_ws/src
 
 # 4. Clone FAST-LIO ROS Package (RS-Airy branch)
-RUN git clone --branch RS-Airy https://github.com/Ilyes-Origamist/robosense_fast_lio.git
+RUN git clone --branch RS-Airy https://github.com/Ilyes-Origamist/robosense_fast_lio.git && \
+    cd robosense_fast_lio && \
+    git submodule update --init --recursive
 
 # 5. Install drivers
 # Clone the livox_ros_driver

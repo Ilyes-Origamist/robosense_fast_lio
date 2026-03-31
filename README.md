@@ -28,7 +28,7 @@ c. Common:
 - Voxel downsampling uses `ApproximateVoxelGrid` for faster downsampling.
 
 **Get Lidar-to-IMU Extrinsics**     
-To get the Lidar-to-IMU extrinsics from DIFOP packet, first set the parameter `send_packet_ros` to true in `rs_lidar`, then record the topic `/rslidar_packets` using rosbag. Finally, run the suggested script `extract_packet_data.py` to convert to numerical values and get three translations and a quaternion (which you need to convert to a rotation matrix).     
+To get the Lidar-to-IMU extrinsics from DIFOP packet, first set the parameter `send_packet_ros` to true in `rslidar_sdk`, then record the topic `/rslidar_packets` using rosbag. Finally, run the suggested script `extract_packet_data.py` to convert to numerical values and get three translations and a quaternion (which you need to convert to a rotation matrix).     
 
 ### How to Run (Docker)
 **Build an image**      
@@ -57,9 +57,12 @@ docker run -it --rm \
   --env DISPLAY=$DISPLAY \
   --env QT_X11_NO_MITSHM=1 \
   -v /tmp/.X11-unix:/tmp/.X11-unix:rw \
-#   -v ~/catkin_ws/rosbags/march24_XYZIRT_test2.bag:/catkin_ws/test.bag \
   --name rs_fast_lio \
   ros_noetic_fast_lio
+```
+You can mount a .bag file using the `-v` flag by adding the line:
+```sh
+  -v /path/to/host/file.bag:/catkin_ws/data.bag \
 ```
 
 ## Adaption by ruanjy
