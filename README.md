@@ -1,3 +1,67 @@
+
+## Fix By Ilyes (RS-Airy)
+
+Prerequisites:    
+- PCL >= 1.8, Follow PCL Installation.
+- Eigen >= 3.3.4, Follow Eigen Installation.
+
+### Features
+This release adds support for the RS Airy Lidar as additional lidar type `lidar_type: 5`.  
+- Correct frame convention (FLU) for IEKF to work properly, which avoids drift and frame misalignment.     
+- Supports both message types `XYZI` and `XYZIRT` for the RS Airy Lidar.  
+- Supports processing sub-clouds only if message type `XYZIRT`. It is enabled/disabled via parameter `divide_sub_cloud`.
+- Deskewing can be unabled/disabled via parameter `deskew_en`.
+- Applies height filtering to ignore points above `max_height` (ceiling filter), supported for both RS M1 and Airy Lidars. This avoids processing unnecessary points and reduces overhead.
+
+### Notes    
+a. When data type is `XYZI`:       
+- Uses voxel downsampling (PCL) with a voxel size `0.1m x 0.1m x 0.1m`.
+- Assumes all points have the same timestamp (curvature = 0) as a flash scan.
+
+b. When data type is `XYZIRT`:     
+- Uses `robosenseM1_handler`
+- Still applies height filtering
+
+c. Common:
+- NED-to-FLU is performed on the IMU data (y and z axis are inverted) and on the IMU-to-Lidar extrinsics.
+- Replaced hardcoded detection range with parameters from YAML config.
+- Voxel downsampling uses `ApproximateVoxelGrid` for faster downsampling.
+
+**Get Lidar-to-IMU Extrinsics**     
+To get the Lidar-to-IMU extrinsics from DIFOP packet, first set the parameter `send_packet_ros` to true in `rs_lidar`, then record the topic `/rslidar_packets` using rosbag. Finally, run the suggested script `extract_packet_data.py` to convert to numerical values and get three translations and a quaternion (which you need to convert to a rotation matrix).     
+
+### How to Run (Docker)
+**Build an image**      
+First build a Docker image using the suggested Dockerfile:
+```sh
+docker build -t ros_noetic_fast_lio "https://github.com/Ilyes-Origamist/robosense_fast_lio.git#RS-Airy"
+```
+Note that it is not needed to clone the repository locally.
+
+**Create a Docker Container**        
+Before running, grant the container access to the host X11 display server, allowing GUI applications like RViz to render on your screen:
+```sh
+xhost +local:docker
+```
+or
+```sh
+echo "xhost +local:docker" >> ~/.bashrc
+```
+for persistent change.
+
+Then run the container using:
+```sh
+docker run -it --rm \
+  --privileged \
+  --net=host \
+  --env DISPLAY=$DISPLAY \
+  --env QT_X11_NO_MITSHM=1 \
+  -v /tmp/.X11-unix:/tmp/.X11-unix:rw \
+#   -v ~/catkin_ws/rosbags/march24_XYZIRT_test2.bag:/catkin_ws/test.bag \
+  --name rs_fast_lio \
+  ros_noetic_fast_lio
+```
+
 ## Adaption by ruanjy
 
 Support the robosense LiDARs including **M1, E1R, and Airy**

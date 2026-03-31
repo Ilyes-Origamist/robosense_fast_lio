@@ -424,6 +424,8 @@ void ImuProcess::Process(const MeasureGroup &meas,  esekfom::esekf<state_ikfom, 
       cov_acc *= pow(G_m_s2 / mean_acc.norm(), 2);
       imu_need_init_ = false;
 
+      // std::cout << "Cov acc: " << cov_acc.transpose() << std::endl;
+      // std::cout << "Cov gyr: " << cov_gyr.transpose() << std::endl;
       cov_acc = cov_acc_scale;
       cov_gyr = cov_gyr_scale;
       ROS_INFO("IMU Initial Done");
